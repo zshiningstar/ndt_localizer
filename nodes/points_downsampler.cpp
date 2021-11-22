@@ -46,6 +46,7 @@ static pcl::PointCloud<pcl::PointXYZ> removePointsByRange(pcl::PointCloud<pcl::P
   return narrowed_scan;
 }
 
+//得到点云后,首先对点云进行截取,只保留MAX_MEASUREMENT_RANGE距离以内的点用于定位
 static void scan_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
   pcl::PointCloud<pcl::PointXYZ> scan;

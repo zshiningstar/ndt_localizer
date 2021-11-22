@@ -89,6 +89,7 @@ void NdtLocalizer::callback_init_pose(
   init_pose = false;
 }
 
+
 void NdtLocalizer::callback_pointsmap(
   const sensor_msgs::PointCloud2::ConstPtr & map_points_msg_ptr)
 {
@@ -118,6 +119,7 @@ void NdtLocalizer::callback_pointsmap(
   ndt_map_mtx_.unlock();
 }
 
+//NDT配准定位
 void NdtLocalizer::callback_pointcloud(
   const sensor_msgs::PointCloud2::ConstPtr & sensor_points_sensorTF_msg_ptr)
 {
@@ -133,6 +135,7 @@ void NdtLocalizer::callback_pointcloud(
 
   pcl::fromROSMsg(*sensor_points_sensorTF_msg_ptr, *sensor_points_sensorTF_ptr);
   // get TF base to sensor
+  //将位激光雷达坐标系下的数据投射到base_link下
   geometry_msgs::TransformStamped::Ptr TF_base_to_sensor_ptr(new geometry_msgs::TransformStamped);
   get_transform(base_frame_, sensor_frame, TF_base_to_sensor_ptr);
 
@@ -153,8 +156,9 @@ void NdtLocalizer::callback_pointcloud(
   }
   // align
   Eigen::Matrix4f initial_pose_matrix;
-  if (!init_pose){
+  if (!init_pose){//初次配准
     Eigen::Affine3d initial_pose_affine;
+    //将pose转为Eigen::Matrix4f
     tf2::fromMsg(initial_pose_cov_msg_.pose.pose, initial_pose_affine);
     initial_pose_matrix = initial_pose_affine.matrix().cast<float>();
     // for the first time, we don't know the pre_trans, so just use the init_trans, 
@@ -170,6 +174,7 @@ void NdtLocalizer::callback_pointcloud(
   pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZ>);
   const auto align_start_time = std::chrono::system_clock::now();
   key_value_stdmap_["state"] = "Aligning";
+  //使用ndt配准
   ndt_.align(*output_cloud, initial_pose_matrix);
   key_value_stdmap_["state"] = "Sleeping";
   const auto align_end_time = std::chrono::system_clock::now();
@@ -290,7 +295,7 @@ void NdtLocalizer::init_params(){
     "converged_param_transform_probability", converged_param_transform_probability_);
 }
 
-
+//获取坐标变换关系
 bool NdtLocalizer::get_transform(
   const std::string & target_frame, const std::string & source_frame,
   const geometry_msgs::TransformStamped::Ptr & transform_stamped_ptr, const ros::Time & time_stamp)

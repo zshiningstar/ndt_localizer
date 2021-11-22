@@ -4,7 +4,7 @@ MapLoader::MapLoader(ros::NodeHandle &nh){
     std::string pcd_file_path, map_topic;
     nh.param<std::string>("pcd_path", pcd_file_path, "");
     nh.param<std::string>("map_topic", map_topic, "point_map");
-
+    //设置map初始的变换参数,若不需要则全部设置为0,此设置在map_load.launch文件中
     init_tf_params(nh);
 
     pc_map_pub_ = nh.advertise<sensor_msgs::PointCloud2>(map_topic, 10, true);
@@ -33,6 +33,7 @@ void MapLoader::init_tf_params(ros::NodeHandle &nh){
                         <<tf_roll_<<" pitch: "<< tf_pitch_<<"yaw: "<<tf_yaw_);
 }
 
+//用于平移和旋转地图,主要针对于地图初始化时的地图的平移与旋转
 sensor_msgs::PointCloud2 MapLoader::TransformMap(sensor_msgs::PointCloud2 & in){
     pcl::PointCloud<pcl::PointXYZ>::Ptr in_pc(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(in, *in_pc);
@@ -59,7 +60,7 @@ void MapLoader::SaveMap(const pcl::PointCloud<pcl::PointXYZ>::Ptr map_pc_ptr){
 }
 
 
-
+//加载pcd地图文件
 sensor_msgs::PointCloud2 MapLoader::CreatePcd()
 {
 	sensor_msgs::PointCloud2 pcd, part;
