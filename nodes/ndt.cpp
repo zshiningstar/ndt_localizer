@@ -6,17 +6,17 @@ NdtLocalizer::NdtLocalizer(ros::NodeHandle &nh, ros::NodeHandle &private_nh):nh_
   init_params();
 
   // Publishers
-  sensor_aligned_pose_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("points_aligned", 10);
-  ndt_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("ndt_pose", 10);
-  exe_time_pub_ = nh_.advertise<std_msgs::Float32>("exe_time_ms", 10);
+  sensor_aligned_pose_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("points_aligned", 10);//发布对齐的点云
+  ndt_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("ndt_pose", 10);//发布车辆位姿
+  exe_time_pub_ = nh_.advertise<std_msgs::Float32>("exe_time_ms", 10);//发布计算时间
   transform_probability_pub_ = nh_.advertise<std_msgs::Float32>("transform_probability", 10);
-  iteration_num_pub_ = nh_.advertise<std_msgs::Float32>("iteration_num", 10);
+  iteration_num_pub_ = nh_.advertise<std_msgs::Float32>("iteration_num", 10);//迭代次数
   diagnostics_pub_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 10);
 
   // Subscribers
-  initial_pose_sub_ = nh_.subscribe("initialpose", 100, &NdtLocalizer::callback_init_pose, this);
-  map_points_sub_ = nh_.subscribe("points_map", 1, &NdtLocalizer::callback_pointsmap, this);
-  sensor_points_sub_ = nh_.subscribe("filtered_points", 1, &NdtLocalizer::callback_pointcloud, this);
+  initial_pose_sub_ = nh_.subscribe("/initialpose", 100, &NdtLocalizer::callback_init_pose, this);//初始姿态
+  map_points_sub_ = nh_.subscribe("points_map", 1, &NdtLocalizer::callback_pointsmap, this);//pcd点云地图
+  sensor_points_sub_ = nh_.subscribe("filtered_points", 1, &NdtLocalizer::callback_pointcloud, this);//降采样后点云
 
   diagnostic_thread_ = std::thread(&NdtLocalizer::timer_diagnostic, this);
   diagnostic_thread_.detach();
@@ -68,13 +68,16 @@ void NdtLocalizer::timer_diagnostic()
   }
 }
 
+//将初始位姿变换到map坐标系下，并用initial_pose_cov_msg_表示
 void NdtLocalizer::callback_init_pose(
   const geometry_msgs::PoseWithCovarianceStamped::ConstPtr & initial_pose_msg_ptr)
 {
-  if (initial_pose_msg_ptr->header.frame_id == map_frame_) {
+  if (initial_pose_msg_ptr->header.frame_id == map_frame_) {//map
+  
     initial_pose_cov_msg_ = *initial_pose_msg_ptr;
   } else {
     // get TF from pose_frame to map_frame
+    //得到初始位姿到地图下的tf转换
     geometry_msgs::TransformStamped::Ptr TF_pose_to_map_ptr(new geometry_msgs::TransformStamped);
     get_transform(map_frame_, initial_pose_msg_ptr->header.frame_id, TF_pose_to_map_ptr);
 
@@ -89,7 +92,8 @@ void NdtLocalizer::callback_init_pose(
   init_pose = false;
 }
 
-
+//将pcd点云设置为ndt的目标点云,并设置ndt各个参数
+//订阅map_loader中载入pcd点云后发布的话题消息
 void NdtLocalizer::callback_pointsmap(
   const sensor_msgs::PointCloud2::ConstPtr & map_points_msg_ptr)
 {
@@ -106,8 +110,8 @@ void NdtLocalizer::callback_pointsmap(
   ndt_new.setMaximumIterations(max_iterations);
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr map_points_ptr(new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::fromROSMsg(*map_points_msg_ptr, *map_points_ptr);
-  ndt_new.setInputTarget(map_points_ptr);
+  pcl::fromROSMsg(*map_points_msg_ptr, *map_points_ptr);//转为ros消息
+  ndt_new.setInputTarget(map_points_ptr);//设置目标点云
   // create Thread
   // detach
   pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -119,7 +123,7 @@ void NdtLocalizer::callback_pointsmap(
   ndt_map_mtx_.unlock();
 }
 
-//NDT配准定位
+//NDT配准定位,获取降采样点之后
 void NdtLocalizer::callback_pointcloud(
   const sensor_msgs::PointCloud2::ConstPtr & sensor_points_sensorTF_msg_ptr)
 {
@@ -127,8 +131,8 @@ void NdtLocalizer::callback_pointcloud(
   // mutex Map
   std::lock_guard<std::mutex> lock(ndt_map_mtx_);
 
-  const std::string sensor_frame = sensor_points_sensorTF_msg_ptr->header.frame_id;
-  const auto sensor_ros_time = sensor_points_sensorTF_msg_ptr->header.stamp;
+  const std::string sensor_frame = sensor_points_sensorTF_msg_ptr->header.frame_id;//接收到传感器点云时的坐标系
+  const auto sensor_ros_time = sensor_points_sensorTF_msg_ptr->header.stamp;//接收到传感器点云时间戳
 
   boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> sensor_points_sensorTF_ptr(
     new pcl::PointCloud<pcl::PointXYZ>);
@@ -137,20 +141,24 @@ void NdtLocalizer::callback_pointcloud(
   // get TF base to sensor
   //将位激光雷达坐标系下的数据投射到base_link下
   geometry_msgs::TransformStamped::Ptr TF_base_to_sensor_ptr(new geometry_msgs::TransformStamped);
+  //获取sensor到base的tf变换，并存到TF_base_to_sensor_ptr
   get_transform(base_frame_, sensor_frame, TF_base_to_sensor_ptr);
-
+  
   const Eigen::Affine3d base_to_sensor_affine = tf2::transformToEigen(*TF_base_to_sensor_ptr);
+  //获取从sensor到base的转换矩阵
   const Eigen::Matrix4f base_to_sensor_matrix = base_to_sensor_affine.matrix().cast<float>();
 
   boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> sensor_points_baselinkTF_ptr(
     new pcl::PointCloud<pcl::PointXYZ>);
+  //将sensor点云通过base_to_sensor_matrix转换到base坐标系，结果保存到*sensor_points_baselinkTF_ptr
   pcl::transformPointCloud(
     *sensor_points_sensorTF_ptr, *sensor_points_baselinkTF_ptr, base_to_sensor_matrix);
   
   // set input point cloud
+  //将转换到base下的sensor点云设置为ndt的输入源
   ndt_.setInputSource(sensor_points_baselinkTF_ptr);
 
-  if (ndt_.getInputTarget() == nullptr) {
+  if (ndt_.getInputTarget() == nullptr) {//为空,说明地图无载入成功
     ROS_WARN_STREAM_THROTTLE(1, "No MAP!");
     return;
   }
@@ -159,6 +167,7 @@ void NdtLocalizer::callback_pointcloud(
   if (!init_pose){//初次配准
     Eigen::Affine3d initial_pose_affine;
     //将pose转为Eigen::Matrix4f
+    //initial_pose_cov_msg_:初始位姿变换
     tf2::fromMsg(initial_pose_cov_msg_.pose.pose, initial_pose_affine);
     initial_pose_matrix = initial_pose_affine.matrix().cast<float>();
     // for the first time, we don't know the pre_trans, so just use the init_trans, 
@@ -168,6 +177,7 @@ void NdtLocalizer::callback_pointcloud(
   }else
   {
     // use predicted pose as init guess (currently we only impl linear model)
+    //将上一帧求得的位姿作为初始位姿,利用线性模型做当前帧位姿的估计
     initial_pose_matrix = pre_trans * delta_trans;
   }
   
@@ -175,12 +185,12 @@ void NdtLocalizer::callback_pointcloud(
   const auto align_start_time = std::chrono::system_clock::now();
   key_value_stdmap_["state"] = "Aligning";
   //使用ndt配准
-  ndt_.align(*output_cloud, initial_pose_matrix);
+  ndt_.align(*output_cloud, initial_pose_matrix);//配准
   key_value_stdmap_["state"] = "Sleeping";
   const auto align_end_time = std::chrono::system_clock::now();
-  const double align_time = std::chrono::duration_cast<std::chrono::microseconds>(align_end_time - align_start_time).count() /1000.0;
+  const double align_time = std::chrono::duration_cast<std::chrono::microseconds>(align_end_time - align_start_time).count() /1000.0;//配准用时
 
-  const Eigen::Matrix4f result_pose_matrix = ndt_.getFinalTransformation();
+  const Eigen::Matrix4f result_pose_matrix = ndt_.getFinalTransformation();//得到最终变换
   Eigen::Affine3d result_pose_affine;
   result_pose_affine.matrix() = result_pose_matrix.cast<double>();
   const geometry_msgs::Pose result_pose_msg = tf2::toMsg(result_pose_affine);
@@ -190,7 +200,8 @@ void NdtLocalizer::callback_pointcloud(
 
   const float transform_probability = ndt_.getTransformationProbability();
   const int iteration_num = ndt_.getFinalNumIteration();
-
+  
+  //收敛判别
   bool is_converged = true;
   static size_t skipping_publish_num = 0;
   if (
@@ -265,15 +276,16 @@ void NdtLocalizer::callback_pointcloud(
   std::cout << "skipping_publish_num: " << skipping_publish_num << std::endl;
 }
 
+//
 void NdtLocalizer::init_params(){
 
-  private_nh_.getParam("base_frame", base_frame_);
+  private_nh_.getParam("base_frame", base_frame_);//base_link
   ROS_INFO("base_frame_id: %s", base_frame_.c_str());
-
+  //最小搜索变化量,即前后两次迭代转换矩阵的最大容差,一旦两次迭代小于这个容差,则认为已经收敛到最优解,迭代停止
   double trans_epsilon = ndt_.getTransformationEpsilon();
-  double step_size = ndt_.getStepSize();
-  double resolution = ndt_.getResolution();
-  int max_iterations = ndt_.getMaximumIterations();
+  double step_size = ndt_.getStepSize();//搜索步长度
+  double resolution = ndt_.getResolution();//目标点云的ND体素,单位m
+  int max_iterations = ndt_.getMaximumIterations();//使用牛顿法优化的迭代次数
 
   private_nh_.getParam("trans_epsilon", trans_epsilon);
   private_nh_.getParam("step_size", step_size);
@@ -281,7 +293,7 @@ void NdtLocalizer::init_params(){
   private_nh_.getParam("max_iterations", max_iterations);
 
   map_frame_ = "map";
-
+  //设置ndt一些参数
   ndt_.setTransformationEpsilon(trans_epsilon);
   ndt_.setStepSize(step_size);
   ndt_.setResolution(resolution);
