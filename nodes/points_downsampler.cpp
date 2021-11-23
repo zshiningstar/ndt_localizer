@@ -1,3 +1,4 @@
+//载入地图之后,启动雷达进行NDT配准时,为了提高配准效率,采用降采样对输入点云进行降采样处理
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 
@@ -53,7 +54,7 @@ static void scan_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   pcl::fromROSMsg(*input, scan);
   scan = removePointsByRange(scan, 0, MAX_MEASUREMENT_RANGE);
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr scan_ptr(new pcl::PointCloud<pcl::PointXYZ>(scan));
+  pcl::PointCloud<pcl::PointXYZ>::Ptr scan_ptr(new pcl::PointCloud<pcl::PointXYZ>(scan));//重新赋值给scan_ptr
   pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZ>());
 
   sensor_msgs::PointCloud2 filtered_msg;
@@ -64,9 +65,9 @@ static void scan_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     // Downsampling the velodyne scan using VoxelGrid filter
     pcl::VoxelGrid<pcl::PointXYZ> voxel_grid_filter;
     voxel_grid_filter.setLeafSize(voxel_leaf_size, voxel_leaf_size, voxel_leaf_size);
-    voxel_grid_filter.setInputCloud(scan_ptr);
-    voxel_grid_filter.filter(*filtered_scan_ptr);
-    pcl::toROSMsg(*filtered_scan_ptr, filtered_msg);
+    voxel_grid_filter.setInputCloud(scan_ptr);//设置输入点云
+    voxel_grid_filter.filter(*filtered_scan_ptr);//降采样
+    pcl::toROSMsg(*filtered_scan_ptr, filtered_msg);//转为ros点云
   }
   else
   {
@@ -74,7 +75,7 @@ static void scan_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   }
 
   filtered_msg.header = input->header;
-  filtered_points_pub.publish(filtered_msg);
+  filtered_points_pub.publish(filtered_msg);//发布滤波后点云
 
 }
 
@@ -92,11 +93,16 @@ int main(int argc, char** argv)
   ROS_INFO_STREAM("Voxel leaf size is: "<<voxel_leaf_size);
   if(_output_log == true){
 	  char buffer[80];
-	  std::time_t now = std::time(NULL);
-	  std::tm *pnow = std::localtime(&now);
+	  std::time_t now = std::time(NULL);//time_t 这种类型就是用来存储从1970年到现在经过了多少秒
+	  std::tm *pnow = std::localtime(&now);//年月日时分秒
 	  std::strftime(buffer,80,"%Y%m%d_%H%M%S",pnow);
+	  ROS_INFO_STREAM("time:"<< std::string(buffer));
 	  filename = "voxel_grid_filter_" + std::string(buffer) + ".csv";
-	  ofs.open(filename.c_str(), std::ios::app);
+	  ofs.open(filename.c_str(), std::ios::out);
+	  ofs << std::fixed << std::setprecision(9)
+         << std::string(buffer) << "\n";
+      ofs.flush();
+      ofs.close();  
   }
 
   // Publishers
